@@ -1,0 +1,27 @@
+FireLaunch-3D
+│
+├── Assets
+│   ├── Scripts
+│   │   ├── PlayerMovement.cs
+│   │   ├── ThirdPersonCamera.cs
+│   │   ├── Weapon.cs
+│   │   ├── Gun.cs
+│   │   ├── Health.cs
+│   │   ├── Armor.cs
+│   │   ├── Inventory.cs
+│   │   ├── LootSpawner.cs
+│   │   ├── SafeZone.cs
+│   │   ├── EnemyBot.cs
+│   │   ├── MatchManager.cs
+│   │   └── UIManager.cs
+│   │
+│   ├── Scenes
+│   │   ├── MainMenu.unity
+│   │   └── BattleArena.unity
+│   │
+│   ├── Prefabs
+│   ├── Models
+│   ├── Animations
+│   └── Sounds
+│
+└── README.md
