@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Free Fire Survival - Full System Edition</title>
+  <title>Free Fire Survival</title>
   <style>
     * { box-sizing: border-box; user-select: none; margin: 0; padding: 0; }
     body {
@@ -87,7 +87,6 @@
       box-shadow: inset 0 0 0px rgba(255, 0, 0, 0);
       transition: box-shadow 0.1s ease;
     }
-    /* Modal / Character Select Screens */
     .screen-overlay {
       position: absolute;
       top: 0; left: 0;
@@ -173,25 +172,25 @@
     </div>
   </div>
 
-  <!-- Character Select Screen -->
+  <!-- Character Select -->
   <div id="charScreen" class="screen-overlay">
     <h1 style="color: #ff4500; font-size: 38px;">CHOOSE SURVIVOR</h1>
-    <p style="color: #bbb;">Select your active battle ability before dropping:</p>
+    <p style="color: #bbb;">Select your active ability before dropping:</p>
     <div class="char-card-container">
       <div class="char-card active" onclick="selectChar('ALOK', this)">
         <h3 style="color: #00e676;">DJ ALOK</h3>
         <p style="font-size: 12px; color: #aaa; margin: 8px 0;">Skill: <b>Drop the Beat</b></p>
-        <p style="font-size: 13px;">Creates a 5m aura restoring 30 HP & granting +20% movement speed for 5s.</p>
+        <p style="font-size: 13px;">Creates a healing aura + speed boost.</p>
       </div>
       <div class="char-card" onclick="selectChar('KELLY', this)">
         <h3 style="color: #ffea00;">KELLY</h3>
         <p style="font-size: 12px; color: #aaa; margin: 8px 0;">Skill: <b>Dash Sprint</b></p>
-        <p style="font-size: 13px;">Supercharged burst providing +75% speed and first-shot critical damage.</p>
+        <p style="font-size: 13px;">Supercharged sprint & critical damage.</p>
       </div>
       <div class="char-card" onclick="selectChar('CHRONO', this)">
         <h3 style="color: #2979ff;">CHRONO</h3>
         <p style="font-size: 12px; color: #aaa; margin: 8px 0;">Skill: <b>Time Turner</b></p>
-        <p style="font-size: 13px;">Instantly deploys a protective forcefield absorbing up to 150 damage.</p>
+        <p style="font-size: 13px;">Deploys a personal protective shield.</p>
       </div>
     </div>
     <button class="btn" onclick="startSelectedGame()">START MATCH</button>
@@ -206,7 +205,6 @@
 </div>
 
 <script>
-  // Web Audio Synth Engine
   const AudioEngine = {
     ctx: null,
     init() {
@@ -227,18 +225,10 @@
         osc.stop(this.ctx.currentTime + duration);
       } catch(e) {}
     },
-    shoot(isSniper = false) {
-      this.playTone(isSniper ? 180 : 380, 'sawtooth', isSniper ? 0.25 : 0.08, 0.15);
-    },
-    explosion() {
-      this.playTone(80, 'square', 0.5, 0.3);
-    },
-    hit() {
-      this.playTone(150, 'triangle', 0.05, 0.1);
-    },
-    loot() {
-      this.playTone(600, 'sine', 0.12, 0.1);
-    }
+    shoot(isSniper = false) { this.playTone(isSniper ? 180 : 380, 'sawtooth', isSniper ? 0.25 : 0.08, 0.15); },
+    explosion() { this.playTone(80, 'square', 0.5, 0.3); },
+    hit() { this.playTone(150, 'triangle', 0.05, 0.1); },
+    loot() { this.playTone(600, 'sine', 0.12, 0.1); }
   };
 
   const canvas = document.getElementById('gameCanvas');
@@ -258,16 +248,26 @@
     AWM:    { name: 'AWM Sniper', damage: 110,fireRate: 1100,speed: 24, spread: 0.005,magSize: 5,  mag: 5,  ammo: 15,      reloadTime: 2000, burst: 1 }
   };
 
-  let player, bots, bullets, loot, particles, obstacles, glooWalls, airdrops, safeZone;
+  let player = null;
+  let bots = [];
+  let bullets = [];
+  let loot = [];
+  let particles = [];
+  let obstacles = [];
+  let glooWalls = [];
+  let airdrops = [];
+  let safeZone = null;
   let selectedCharType = 'ALOK';
   let keys = {}, mouse = { x: 0, y: 0, down: false };
   let isGameOver = false;
+  let gameStarted = false;
   let kills = 0;
   let killFeedQueue = [];
 
   class Camera {
     constructor() { this.x = 0; this.y = 0; }
     follow(target) {
+      if (!target) return;
       this.x = target.x - VIEW_WIDTH / 2;
       this.y = target.y - VIEW_HEIGHT / 2;
       this.x = Math.max(0, Math.min(this.x, WORLD_SIZE - VIEW_WIDTH));
@@ -291,6 +291,7 @@
     AudioEngine.init();
     document.getElementById('charScreen').style.display = 'none';
     initGame();
+    gameStarted = true;
   }
 
   function initGame() {
@@ -316,7 +317,8 @@
       charType: selectedCharType,
       skillCooldown: 0,
       skillActiveTimer: 0,
-      chronoShield: 0
+      chronoShield: 0,
+      lastShot: 0
     };
 
     safeZone = {
@@ -335,7 +337,6 @@
     glooWalls = [];
     airdrops = [];
 
-    // Obstacles (Buildings / Boulders)
     for (let i = 0; i < 50; i++) {
       obstacles.push({
         x: Math.random() * (WORLD_SIZE - 300) + 150,
@@ -344,7 +345,6 @@
       });
     }
 
-    // World Loot
     const wepList = ['MP40', 'AK47', 'M1887', 'AWM'];
     for (let i = 0; i < 45; i++) {
       let item;
@@ -366,7 +366,6 @@
       });
     }
 
-    // Enemy Bots
     const botNames = ['KellyBot', 'Hayato99', 'Raistar_X', 'TotalGamer', 'SkylerPro', 'NobitaFF', 'Viper07', 'GhostHunter', 'DeltaOne', 'Shadow7', 'AlphaElite'];
     for (let i = 0; i < 11; i++) {
       bots.push({
@@ -384,13 +383,11 @@
       });
     }
 
-    // Schedule First Airdrop
-    setTimeout(spawnAirdrop, 10000);
     updateHUD();
   }
 
   function spawnAirdrop() {
-    if (isGameOver) return;
+    if (!gameStarted || isGameOver || !safeZone) return;
     const dropX = safeZone.x + (Math.random() - 0.5) * (safeZone.radius * 0.8);
     const dropY = safeZone.y + (Math.random() - 0.5) * (safeZone.radius * 0.8);
     airdrops.push({
@@ -401,46 +398,44 @@
       gloo: 3
     });
     pushKillFeed("SYSTEM", "Airdrop landed in safe zone!");
-    setTimeout(spawnAirdrop, 35000);
   }
+  setInterval(spawnAirdrop, 30000);
 
   function deployGlooWall() {
-    if (player.glooWalls <= 0) return;
+    if (!player || player.glooWalls <= 0) return;
     player.glooWalls--;
     const wallDist = 42;
     glooWalls.push({
       x: player.x + Math.cos(player.angle) * wallDist,
       y: player.y + Math.sin(player.angle) * wallDist,
       angle: player.angle + Math.PI / 2,
-      hp: 250,
-      maxHp: 250,
-      width: 50,
-      height: 14
+      hp: 250, maxHp: 250,
+      width: 50, height: 14
     });
     AudioEngine.playTone(300, 'sine', 0.15, 0.2);
     updateHUD();
   }
 
   function activateSkill() {
-    if (player.skillCooldown > 0) return;
-
+    if (!player || player.skillCooldown > 0) return;
     if (player.charType === 'ALOK') {
-      player.skillActiveTimer = 300; // 5s
-      player.skillCooldown = 900;    // 15s
+      player.skillActiveTimer = 300;
+      player.skillCooldown = 900;
     } else if (player.charType === 'KELLY') {
-      player.skillActiveTimer = 240; // 4s
-      player.skillCooldown = 720;    // 12s
+      player.skillActiveTimer = 240;
+      player.skillCooldown = 720;
     } else if (player.charType === 'CHRONO') {
       player.chronoShield = 150;
-      player.skillCooldown = 1200;   // 20s
+      player.skillCooldown = 1200;
     }
     AudioEngine.playTone(520, 'triangle', 0.3, 0.25);
   }
 
   function reloadWeapon(wep) {
-    if (player.isReloading || wep.ammo <= 0 || wep.mag === wep.magSize) return;
+    if (!player || player.isReloading || wep.ammo <= 0 || wep.mag === wep.magSize) return;
     player.isReloading = true;
     setTimeout(() => {
+      if (!player) return;
       const needed = wep.magSize - wep.mag;
       const transfer = Math.min(needed, wep.ammo);
       wep.mag += transfer;
@@ -450,10 +445,10 @@
     }, wep.reloadTime);
   }
 
-  // Inputs
   window.addEventListener('keydown', e => {
     const k = e.key.toLowerCase();
     keys[k] = true;
+    if (!player) return;
     if (k === '1' && player.inventory[0]) player.activeSlot = 0;
     if (k === '2' && player.inventory[1]) player.activeSlot = 1;
     if (k === '3' && player.inventory[2]) player.activeSlot = 2;
@@ -477,6 +472,7 @@
   window.addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 
   function throwGrenade() {
+    if (!player) return;
     player.grenades--;
     const worldMouseX = mouse.x + camera.x;
     const worldMouseY = mouse.y + camera.y;
@@ -518,7 +514,7 @@
         vx: Math.cos(finalAngle) * wep.speed,
         vy: Math.sin(finalAngle) * wep.speed,
         radius: wep.name.includes('AWM') ? 4 : 3,
-        damage: wep.damage * (player.skillActiveTimer > 0 && player.charType === 'KELLY' && !isEnemy ? 1.4 : 1),
+        damage: wep.damage * (player && player.skillActiveTimer > 0 && player.charType === 'KELLY' && !isEnemy ? 1.4 : 1),
         isEnemy: isEnemy,
         shooterName: isEnemy ? shooter.name : "You",
         range: 75
@@ -562,9 +558,8 @@
   }
 
   function update() {
-    if (isGameOver) return;
+    if (!gameStarted || isGameOver || !player) return;
 
-    // Character Active Skills Tick
     player.speed = player.baseSpeed;
     if (player.skillActiveTimer > 0) {
       player.skillActiveTimer--;
@@ -577,13 +572,11 @@
     }
     if (player.skillCooldown > 0) player.skillCooldown--;
 
-    // EP to HP conversion
     if (player.hp < player.maxHp && player.ep > 0) {
       player.ep -= 0.05;
       player.hp = Math.min(player.maxHp, player.hp + 0.05);
     }
 
-    // Movement
     let dx = 0, dy = 0;
     if (keys['w'] || keys['arrowup']) dy -= 1;
     if (keys['s'] || keys['arrowdown']) dy += 1;
@@ -602,13 +595,11 @@
 
     camera.follow(player);
 
-    // Safe Zone Contract
     if (safeZone.radius > safeZone.targetRadius) safeZone.radius -= safeZone.shrinkSpeed;
     if (Math.hypot(player.x - safeZone.x, player.y - safeZone.y) > safeZone.radius) {
-      player.hp -= 0.2; // Gas Zone Tick
+      player.hp -= 0.2;
     }
 
-    // Bullets & Grenades
     for (let i = bullets.length - 1; i >= 0; i--) {
       const b = bullets[i];
       b.x += b.vx;
@@ -619,7 +610,6 @@
         b.vx *= 0.96; b.vy *= 0.96;
         if (b.timer <= 0) {
           AudioEngine.explosion();
-          // Blast Particles & Damage
           for (let p = 0; p < 30; p++) {
             particles.push({
               x: b.x, y: b.y,
@@ -641,7 +631,6 @@
           continue;
         }
 
-        // Gloo Wall Hit
         let hitGloo = false;
         for (let g of glooWalls) {
           if (Math.hypot(b.x - g.x, b.y - g.y) < g.width / 2) {
@@ -652,7 +641,6 @@
         }
         if (hitGloo) { bullets.splice(i, 1); continue; }
 
-        // Entity Collision
         if (b.isEnemy) {
           if (Math.hypot(b.x - player.x, b.y - player.y) < player.radius + b.radius) {
             takeDamage(player, b.damage, true);
@@ -678,10 +666,8 @@
       }
     }
 
-    // Clean broken Gloo Walls
     glooWalls = glooWalls.filter(g => g.hp > 0);
 
-    // Bot AI Actions
     bots.forEach(bot => {
       bot.aiTimer--;
       if (bot.aiTimer <= 0) {
@@ -706,7 +692,6 @@
       }
     });
 
-    // Remove zone-eliminated bots
     for (let i = bots.length - 1; i >= 0; i--) {
       if (bots[i].hp <= 0) {
         pushKillFeed("Zone", bots[i].name);
@@ -714,7 +699,6 @@
       }
     }
 
-    // Loot Interactions
     for (let i = loot.length - 1; i >= 0; i--) {
       const it = loot[i];
       if (Math.hypot(player.x - it.x, player.y - it.y) < player.radius + it.radius) {
@@ -736,7 +720,6 @@
       }
     }
 
-    // Airdrop Interactions
     for (let i = airdrops.length - 1; i >= 0; i--) {
       const ad = airdrops[i];
       if (Math.hypot(player.x - ad.x, player.y - ad.y) < player.radius + ad.radius) {
@@ -748,14 +731,12 @@
       }
     }
 
-    // Particle update
     particles.forEach((p, idx) => {
       p.x += p.vx; p.y += p.vy;
       p.life--;
       if (p.life <= 0) particles.splice(idx, 1);
     });
 
-    // Game End Check
     if (player.hp <= 0) {
       endGame(false);
     } else if (bots.length === 0) {
@@ -766,6 +747,7 @@
   }
 
   function updateHUD() {
+    if (!player) return;
     document.getElementById('hpVal').textContent = Math.max(0, Math.floor(player.hp));
     document.getElementById('hpBar').style.width = Math.max(0, (player.hp / player.maxHp) * 100) + '%';
     document.getElementById('epVal').textContent = Math.floor(player.ep);
@@ -810,10 +792,11 @@
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+    if (!player) return;
+
     ctx.save();
     ctx.translate(-camera.x, -camera.y);
 
-    // Arena Floor
     ctx.fillStyle = '#1c222b';
     ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
     ctx.strokeStyle = '#27313f';
@@ -825,27 +808,25 @@
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(WORLD_SIZE, y); ctx.stroke();
     }
 
-    // Safe Zone (Zone Perimeter)
-    ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.arc(safeZone.x, safeZone.y, safeZone.radius, 0, Math.PI * 2);
-    ctx.stroke();
+    if (safeZone) {
+      ctx.strokeStyle = 'rgba(0, 191, 255, 0.7)';
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(safeZone.x, safeZone.y, safeZone.radius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
-    // Airdrops
     airdrops.forEach(ad => {
       ctx.fillStyle = '#ff1744';
       ctx.fillRect(ad.x - 16, ad.y - 16, 32, 32);
       ctx.fillStyle = '#ffeb3b';
       ctx.fillRect(ad.x - 4, ad.y - 16, 8, 32);
-      // Yellow Beacon Light
       ctx.fillStyle = 'rgba(255, 235, 59, 0.2)';
       ctx.beginPath();
       ctx.arc(ad.x, ad.y, 45, 0, Math.PI * 2);
       ctx.fill();
     });
 
-    // Loot & Loot Crates
     loot.forEach(item => {
       if (item.isCrate) {
         ctx.fillStyle = '#ffd700';
@@ -861,7 +842,6 @@
       }
     });
 
-    // Obstacles
     ctx.fillStyle = '#394657';
     obstacles.forEach(obs => {
       ctx.beginPath();
@@ -869,7 +849,6 @@
       ctx.fill();
     });
 
-    // Gloo Walls
     glooWalls.forEach(g => {
       ctx.save();
       ctx.translate(g.x, g.y);
@@ -881,7 +860,6 @@
       ctx.restore();
     });
 
-    // Bullets / Grenades
     bullets.forEach(b => {
       ctx.fillStyle = b.isGrenade ? '#ff1744' : '#ffea00';
       ctx.beginPath();
@@ -889,7 +867,6 @@
       ctx.fill();
     });
 
-    // Bots
     bots.forEach(bot => {
       ctx.save();
       ctx.translate(bot.x, bot.y);
@@ -902,7 +879,6 @@
       ctx.fill();
       ctx.restore();
 
-      // Bot Name & HP
       ctx.fillStyle = '#fff';
       ctx.font = '11px sans-serif';
       ctx.fillText(bot.name, bot.x - 22, bot.y - 30);
@@ -912,7 +888,6 @@
       ctx.fillRect(bot.x - 16, bot.y - 24, (bot.hp / bot.maxHp) * 32, 4);
     });
 
-    // Player & Alok Aura / Chrono Shield Visuals
     if (player.skillActiveTimer > 0 && player.charType === 'ALOK') {
       ctx.strokeStyle = 'rgba(0, 230, 118, 0.4)';
       ctx.lineWidth = 4;
@@ -939,7 +914,6 @@
     ctx.fill();
     ctx.restore();
 
-    // Explosions
     particles.forEach(p => {
       ctx.fillStyle = p.color;
       ctx.beginPath();
@@ -952,29 +926,26 @@
   }
 
   function drawMiniMap() {
+    if (!safeZone || !player) return;
     mmCtx.clearRect(0, 0, mmCanvas.width, mmCanvas.height);
     const scale = mmCanvas.width / WORLD_SIZE;
 
-    // Safe zone
     mmCtx.strokeStyle = 'deepskyblue';
     mmCtx.lineWidth = 2;
     mmCtx.beginPath();
     mmCtx.arc(safeZone.x * scale, safeZone.y * scale, safeZone.radius * scale, 0, Math.PI * 2);
     mmCtx.stroke();
 
-    // Airdrop Icon
     airdrops.forEach(ad => {
       mmCtx.fillStyle = '#ffeb3b';
       mmCtx.fillRect(ad.x * scale - 2, ad.y * scale - 2, 5, 5);
     });
 
-    // Bots (Red Dots)
     mmCtx.fillStyle = '#ff1744';
     bots.forEach(b => {
       mmCtx.fillRect(b.x * scale - 1, b.y * scale - 1, 3, 3);
     });
 
-    // Player (Green Dot)
     mmCtx.fillStyle = '#00e676';
     mmCtx.beginPath();
     mmCtx.arc(player.x * scale, player.y * scale, 3.5, 0, Math.PI * 2);
@@ -987,6 +958,8 @@
     requestAnimationFrame(loop);
   }
 
+  // Auto-init state on load to guarantee immediate rendering
+  initGame();
   loop();
 </script>
 </body>
