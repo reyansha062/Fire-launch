@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Neon Drift</title>
+<style>
+  :root { color-scheme: dark; --cyan:#54f6ff; --pink:#ff4fd8; --gold:#ffe27a; }
+  * { box-sizing:border-box }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; background:#050610; color:#f4f7ff; font-family:system-ui,Segoe UI,sans-serif; overflow:hidden; }
+  .shell { width:min(960px,100vw); padding:16px; }
+  header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin:0 0 12px; }
+  .mark { font-size:12px; letter-spacing:.35em; color:#a8b5d9; }
+  .stats { display:flex; gap:18px; font-variant-numeric:tabular-nums; font-size:13px; color:#c9d3f3; }
+  .stats b { color:var(--cyan); font-size:16px; margin-left:5px; }
+  .frame { position:relative; border:1px solid #28325a; border-radius:18px; overflow:hidden; box-shadow:0 0 50px #172c6b33, inset 0 0 35px #172c6b22; background:#080b1b; }
+  canvas { display:block; width:100%; height:auto; aspect-ratio: 16 / 10; touch-action:none; }
+  .overlay { position:absolute; inset:0; display:grid; place-items:center; padding:22px; text-align:center; background:linear-gradient(135deg,#070a1add,#090c20cc); backdrop-filter:blur(5px); }
+  .panel { max-width:440px; }
+  .sig { color:var(--cyan); font-size:11px; letter-spacing:.42em; margin-bottom:14px; }
+  h1 { font-size:clamp(30px,6vw,58px); line-height:.98; letter-spacing:-.05em; margin:0 0 15px; text-shadow:0 0 25px #54f6ff44; }
+  p { color:#aeb9dc; line-height:1.6; margin:0 auto 22px; }
+  button { cursor:pointer; border:0; border-radius:10px; padding:13px 24px; color:#061018; background:var(--cyan); font-weight:850; letter-spacing:.12em; box-shadow:0 0 24px #54f6ff40; transition:transform .15s,filter .15s; }
+  button:hover { transform:translateY(-2px); filter:brightness(1.12); }
+  .hint { margin-top:14px; font-size:12px; color:#7d89ad; }
+  .bottom { display:flex; justify-content:space-between; gap:12px; padding:12px 4px 0; color:#7d89ad; font-size:12px; }
+  .hidden { display:none; }
+  @media(max-width:560px) { .shell{padding:8px}.stats{gap:9px;font-size:11px}.stats b{font-size:13px}.bottom{font-size:10px} }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header>
+    <div class="mark">NEON DRIFT</div>
+    <div class="stats">
+      <span>RUN <b id="score">0000</b></span>
+      <span>BEST <b id="best">0000</b></span>
+      <span>LEVEL <b id="level">01</b></span>
+    </div>
+  </header>
+  <div class="frame">
+    <canvas id="game" width="960" height="600" aria-label="Arcade game"></canvas>
+    <div class="overlay hidden" id="end">
+      <div class="panel">
+        <div class="sig">CONNECTION INTERRUPTED</div>
+        <h1 id="endTitle">Not bad.</h1>
+        <p id="endText">The signal is still out there.</p>
+        <button id="again">TRY AGAIN</button>
+        <div class="hint">One more run. You know you want to.</div>
+      </div>
+    </div>
+  </div>
+  <div class="bottom"><span>TIP: Keep moving. Patterns are never quite the same.</span><span>ESC // PAUSE</span></div>
+</div>
+<script>
+(() => {
+  const canvas = document.getElementById('game'), ctx = canvas.getContext('2d');
+  const $ = id => document.getElementById(id);
+  const W=960,H=600;
+  let running=true, paused=false, dead=false, frame=0, score=0, best=+(localStorage.getItem('neonDriftBest')||0), level=1;
+  let player, hazards=[], particles=[], stars=[], keys={}, spawn=0, pointer=null, shake=0;
+  $('best').textContent=String(best).padStart(4,'0');
+  for(let i=0;i<120;i++) stars.push({x:Math.random()*W,y:Math.random()*H,z:Math.random()*2+0.3});
+  function reset(){
+    frame=0;score=0;level=1;spawn=30;shake=0;hazards=[];particles=[];
+    player={x:W/2,y:H*.77,r:12,vx:0,vy:0,trail:[]};
+    $('score').textContent='0000';$('level').textContent='01';
+  }
+  function start(){reset();running=true;paused=false;dead=false;$('end').classList.add('hidden');}
+  $('again').addEventListener('click',start);
+  addEventListener('keydown',e=>{keys[e.key.toLowerCase()]=true;if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key))e.preventDefault();if(e.key==='Escape'&&running&&!dead)paused=!paused;if((e.key==='Enter'||e.key===' ')&&dead)start();});
+  addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+  function pos(e){const r=canvas.getBoundingClientRect();return {x:(e.clientX-r.left)/r.width*W,y:(e.clientY-r.top)/r.height*H};}
+  canvas.addEventListener('pointerdown',e=>{pointer=pos(e);canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener('pointermove',e=>{if(pointer)pointer=pos(e);});
+  canvas.addEventListener('pointerup',()=>pointer=null);canvas.addEventListener('pointercancel',()=>pointer=null);
+  function burst(x,y,color,n=12){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,s=Math.random()*4+1;particles.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:30+Math.random()*25,color,r:Math.random()*3+1});}}
+  function spawnHazard(){
+    const type=Math.random();
+    if(type<.68){
+      const size=14+Math.random()*24;
+      hazards.push({type:'fall',x:30+Math.random()*(W-60),y:-40,w:size,h:size,vx:(Math.random()-.5)*1.8,vy:2.1+Math.random()*1.6+level*.23,rot:Math.random()*6,vr:(Math.random()-.5)*.09,color:Math.random()<.5?'#ff4fd8':'#8e7dff'});
+    }else{
+      const y=60+Math.random()*H*.42;
+      hazards.push({type:'beam',x:-180,y,w:100+Math.random()*120,h:5,vy:1.4+level*.13,life:0,warning:45,color:'#ffe27a'});
+    }
+  }
+  function hit(a,b){return Math.abs(a.x-b.x)<(a.r+b.w*.42)&&Math.abs(a.y-b.y)<(a.r+b.h*.42);}
+  function finish(){
+    running=false;dead=true;burst(player.x,player.y,'#54f6ff',42);
+    best=Math.max(best,Math.floor(score));localStorage.setItem('neonDriftBest',best);$('best').textContent=String(best).padStart(4,'0');
+    $('endTitle').textContent=score>1800?'You bent the rules.':score>800?'Impressive reflexes.':'Signal lost.';
+    $('endText').textContent=`You lasted ${Math.floor(score)} points. Neon Drift has recorded your run.`;
+    $('end').classList.remove('hidden');
+  }
+  function update(){
+    frame++;score+=.17;level=Math.min(9,1+Math.floor(score/230));
+    $('score').textContent=String(Math.floor(score)).padStart(4,'0');$('level').textContent=String(level).padStart(2,'0');
+    for(const s of stars){s.y+=s.z*(1+level*.12);if(s.y>H){s.y=0;s.x=Math.random()*W;}}
+    const p=player;let dx=0,dy=0;
+    if(keys.arrowleft||keys.a)dx--;if(keys.arrowright||keys.d)dx++;if(keys.arrowup||keys.w)dy--;if(keys.arrowdown||keys.s)dy++;
+    if(pointer){const tx=pointer.x-p.x,ty=pointer.y-p.y;dx=tx*.06;dy=ty*.06;}
+    const mag=Math.hypot(dx,dy)||1;if(mag>1){dx/=mag;dy/=mag;}
+    p.vx+=(dx*0.85-p.vx*.18);p.vy+=(dy*0.85-p.vy*.18);
+    p.x=Math.max(20,Math.min(W-20,p.x+p.vx));p.y=Math.max(25,Math.min(H-20,p.y+p.vy));
+    p.trail.unshift({x:p.x,y:p.y});if(p.trail.length>12)p.trail.pop();
+    spawn--;if(spawn<=0){spawn=Math.max(13,39-level*2)+Math.random()*20;spawnHazard();if(level>=4&&Math.random()<.3)spawnHazard();}
+    for(let i=hazards.length-1;i>=0;i--){
+      const h=hazards[i];
+      if(h.type==='fall'){h.x+=h.vx;h.y+=h.vy;h.rot+=h.vr;}
+      else {h.life++;h.y+=h.vy;if(h.life>h.warning)h.x+=11+level*.5; if(h.life===h.warning)burst(0,h.y,h.color,18);}
+      if(h.type==='fall'&&hit(p,h)){shake=14;finish();return;}
+      if(h.type==='beam'&&h.life>h.warning&&p.y>h.y-12&&p.y<h.y+12&&p.x<h.x+h.w&&p.x>h.x-30){shake=14;finish();return;}
+      if(h.y>H+80||h.x>W+200)hazards.splice(i,1);
+    }
+    for(let i=particles.length-1;i>=0;i--){const q=particles[i];q.x+=q.vx;q.y+=q.vy;q.vx*=.98;q.vy*=.98;q.life--;if(q.life<=0)particles.splice(i,1);}
+    if(shake>0)shake--;
+  }
+  function draw(){
+    ctx.save();if(shake)ctx.translate((Math.random()-.5)*shake,(Math.random()-.5)*shake);
+    ctx.fillStyle='#070918';ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='#1c2448';ctx.lineWidth=1;
+    for(let x=0;x<W;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();}
+    for(let y=0;y<H;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke();}
+    for(const s of stars){ctx.fillStyle=`rgba(150,190,255,${.2+s.z*.25})`;ctx.fillRect(s.x,s.y,s.z,s.z);}
+    for(const h of hazards){
+      ctx.save();
+      if(h.type==='fall'){ctx.translate(h.x,h.y);ctx.rotate(h.rot);ctx.shadowBlur=20;ctx.shadowColor=h.color;ctx.fillStyle=h.color;ctx.fillRect(-h.w/2,-h.h/2,h.w,h.h);ctx.strokeStyle='#ffffffaa';ctx.strokeRect(-h.w/2,-h.h/2,h.w,h.h);}
+      else{ctx.globalAlpha=h.life<h.warning?.25+.25*Math.sin(frame*.45):.95;ctx.shadowBlur=22;ctx.shadowColor=h.color;ctx.fillStyle=h.color;ctx.fillRect(0,h.y,W,h.h);ctx.fillStyle='#fff';ctx.fillRect(0,h.y,W,1);}
+      ctx.restore();
+    }
+    for(const q of particles){ctx.globalAlpha=Math.max(0,q.life/50);ctx.fillStyle=q.color;ctx.beginPath();ctx.arc(q.x,q.y,q.r,0,Math.PI*2);ctx.fill();}ctx.globalAlpha=1;
+    if(player&&running){
+      player.trail.forEach((t,i)=>{ctx.globalAlpha=(1-i/player.trail.length)*.3;ctx.fillStyle='#54f6ff';ctx.beginPath();ctx.arc(t.x,t.y,player.r*(1-i/player.trail.length),0,Math.PI*2);ctx.fill();});
+      ctx.globalAlpha=1;ctx.save();ctx.translate(player.x,player.y);ctx.rotate(frame*.025);ctx.shadowBlur=28;ctx.shadowColor='#54f6ff';
+      ctx.strokeStyle='#54f6ff';ctx.lineWidth=2.5;ctx.beginPath();ctx.moveTo(0,-17);ctx.lineTo(13,0);ctx.lineTo(0,17);ctx.lineTo(-13,0);ctx.closePath();ctx.stroke();
+      ctx.fillStyle='#eaffff';ctx.beginPath();ctx.arc(0,0,4,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+    if(paused&&running){ctx.fillStyle='#050610aa';ctx.fillRect(0,0,W,H);ctx.fillStyle='#fff';ctx.font='bold 42px system-ui';ctx.textAlign='center';ctx.fillText('PAUSED',W/2,H/2);}
+    ctx.restore();
+  }
+  function loop(){if(running&&!paused)update();else if(!running){for(let i=particles.length-1;i>=0;i--){const q=particles[i];q.x+=q.vx;q.y+=q.vy;q.life--;if(q.life<=0)particles.splice(i,1);}}draw();requestAnimationFrame(loop);}
+  reset();loop();
+})();
+</script>
+</body>
+</html>
